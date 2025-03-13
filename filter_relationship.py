@@ -34,7 +34,11 @@ def read_annotation_and_relation(document_id, input_tar_gz_handle):
     doc_dict = {}
     rel_dict = {}
     
-    tar_member_ann = input_tar_gz_handle.getmember(rooted_document_id + ".ann")
+    try:
+        tar_member_ann = input_tar_gz_handle.getmember(rooted_document_id + ".ann")
+    except KeyError: 
+        # ann file doesn't exist in trigger output file, no trigger found for any relation in the pmid
+        return None
     f = input_tar_gz_handle.extractfile(tar_member_ann)
     lines = f.readlines()
     for line in lines:
@@ -60,50 +64,72 @@ def read_annotation_and_relation(document_id, input_tar_gz_handle):
             e2_id = int(arg2.split('T')[1])
             if e1_id < e2_id:
                 k = (f'T{e1_id}', f'T{e2_id}')
-                if k in rel_dict:
-                    rel_dict[k].append((r_id, rel_type+'>'))
-                else:
-                    rel_dict[k] = [(r_id, rel_type+'>')]
+                rel_type = rel_type+'>' if rel_type != 'Complex_formation' else rel_type
+                
             else:
                 k = (f'T{e2_id}', f'T{e1_id}')
-                if k in rel_dict:
-                    rel_dict[k].append((r_id, rel_type+'<'))
-                else:
-                    rel_dict[k] = [(r_id, rel_type+'<')]
+                rel_type = rel_type+'<' if rel_type != 'Complex_formation' else rel_type
+            if k in rel_dict:
+                rel_dict[k].append((r_id, rel_type))
+            else:
+                rel_dict[k] = [(r_id, rel_type)]
     return doc_dict, rel_dict
 
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("input_tar_gz_ann_path" , type=str)
-    parser.add_argument("output_gz_tsv_path" , type=str)
-    parser.add_argument("filtered_relation_with_eid_filepath" , type=str)
+    parser.add_argument("--in_RE_outtsvgz_path" , type=str)
+    parser.add_argument("--in_tar_gz_ann_path" , type=str)
+    parser.add_argument("--out_filtered_relation_with_eid" , type=str)
     args = parser.parse_args()
     
-    input_tar_gz_handle = tarfile.open(args.input_tar_gz_ann_path , "r:gz")
+    input_tar_gz_handle = tarfile.open(args.in_tar_gz_ann_path , "r:gz")
     pmid_doc_dict = {}
     pmid_rel_dict = {}
-    with gzip.open(args.output_gz_tsv_path , "rt") as f:
+    pmid_finished = set()
+    with gzip.open(args.in_RE_outtsvgz_path , "rt") as f:
         next(f)
-        for l in f:
-            document_id = l.split('\t')[0]
-            doc_dict, rel_dict = read_annotation_and_relation(document_id, input_tar_gz_handle)
-            pmid_doc_dict[document_id] = doc_dict
-            pmid_rel_dict[document_id] = rel_dict
+        for i,l in enumerate(f):
+            pmid = int(l.split('\t')[0])
+            if pmid in pmid_finished:
+                continue
+            res = read_annotation_and_relation(pmid, input_tar_gz_handle)
+            if res == None:
+                continue
+            doc_dict, rel_dict = res
+            pmid_doc_dict[pmid] = doc_dict
+            pmid_rel_dict[pmid] = rel_dict
             
-    with gzip.open(args.output_gz_tsv_path , "rt") as f:
+            pmid_finished.add(pmid)
+        #     if i> 20:
+        #         break
+        # print(pmid_rel_dict)
+        
+        
+        # sys.exit()
+    
+    ## over-write if already exists
+    os.makedirs(os.path.dirname(args.out_filtered_relation_with_eid), exist_ok=True)
+    with gzip.open(args.out_filtered_relation_with_eid, 'wt') as wf:
+        print('pmid', 'e1_id', 'e2_id', 'tax1_id', 'str1_id', 'par1_num', 'sent1_num', 'e1_start', 'e1_end', 'tax2_id', 'str2_id', 'par2_num', 'sent2_num', 'e2_start', 'e2_end', 'rel_id', 'rel_type', 'rel_score', sep = '\t', file = wf)
+        
+    with gzip.open(args.in_RE_outtsvgz_path , "rt") as f:
         _ , _ , _ , *labels  = f.readline().strip().split("\t")
+        
         for line in f:
-            document_id , e1_id , e2_id , *probabilities_ = line.strip().split("\t")
+            pmid, e1_id , e2_id, *probabilities_ = line.strip().split("\t")
             # probabilities=np.array(probabilities_).astype(float)
             # q = (1 - probabilities)
             # e1_id, e2_id = str(e1_id), str(e2_id)
-            document_id = int(document_id)
             
-            if (e1_id, e2_id) not in pmid_rel_dict[document_id]:
+            pmid = int(pmid)
+            
+            if pmid not in pmid_rel_dict:
                 continue
             
-                
+            if (e1_id, e2_id) not in pmid_rel_dict[pmid]:
+                continue
+            print(pmid, e1_id , e2_id)
             for i in doc_dict[e1_id]['string_id']:
                 for j in doc_dict[e2_id]['string_id']:
                     
@@ -115,17 +141,18 @@ if __name__=="__main__":
                         #print line if the protein is not the same
                         if (str(i) != str(j)):
                             #print line if things are in the same paragraph only
-                            if (pmid_doc_dict[document_id][e1_id]['par_num'] == pmid_doc_dict[document_id][e2_id]['par_num']):
+                            if (pmid_doc_dict[pmid][e1_id]['par_num'] == pmid_doc_dict[pmid][e2_id]['par_num']):
                                
                                 # write this line
                                 # 391	T8	T11	9606	ENSP00000303830	2	7	986	1001	9606	ENSP00000380432	2	7	1099	1105	Complex_formation	0.9997691512107849
                                 
                                 ## can be multiple relations per pair
-                                for (rel_id, rel_type) in pmid_rel_dict[document_id]: 
-                                    label_idx = label.index(pmid_rel_dict[document_id][rel_type])
-                                    relationship_score = 1-float(probabilities_[label_idx])
-                                    
-                                    with open(args.filtered_relation_with_eid_filepath, 'a') as wf:
+                                for (rel_id, rel_type) in pmid_rel_dict[pmid][(e1_id, e2_id)]: 
+                                    print(rel_id,rel_type)
+                                    label_idx = labels.index(rel_type)
+                                    relationship_score = float(probabilities_[label_idx])
+                                    print(label_idx, relationship_score)
+                                    with gzip.open(args.out_filtered_relation_with_eid, 'at') as wf:
                                         if rel_type[-1] == '<':
                                             e1_p = e2_id
                                             e2_p = e1_id
@@ -134,13 +161,25 @@ if __name__=="__main__":
                                             tax2_p = taxid_e1
                                             str2_p = stringid_e1
                                             rel_type_print = rel_type[:-1]
-                                        elif rel_type[-1] == '>':
-                                            rel_type_print = rel_type[:-1]
                                         else:
-                                            rel_type_print = rel_type
+                                            e1_p = e1_id
+                                            e2_p = e2_id
+                                            tax1_p = taxid_e1
+                                            str1_p = stringid_e1
+                                            tax2_p = taxid_e2
+                                            str2_p = stringid_e2
+                                            if rel_type[-1] == '>':
+                                                rel_type_print = rel_type[:-1]
+                                            else:
+                                                rel_type_print = rel_type
                                             
-                                        print(document_id, e1_p, e2_p, 
+                                        print(pmid, e1_p, e2_p, 
                                             tax1_p, str1_p, doc_dict[e1_p]['par_num'], doc_dict[e1_p]['sent_num'], doc_dict[e1_p]['start'], doc_dict[e1_p]['end'],
                                             tax2_p, str2_p, doc_dict[e2_p]['par_num'], doc_dict[e2_p]['sent_num'], doc_dict[e2_p]['start'], doc_dict[e2_p]['end'],
-                                            rel_id, rel_type_print
+                                            rel_id, rel_type_print, relationship_score, 
                                             sep='\t', file=wf)
+                                        
+# TOFIX Traceback (most recent call last):
+#   File "/scratch/project_2001426/qingyao/process-NER-Trigger-output/filter_relationship.py", line 133, in <module>
+#     for i in doc_dict[e1_id]['string_id']:
+# KeyError: 'T47'
