@@ -1,11 +1,6 @@
-import matplotlib.pyplot as plt
 import csv
-from scipy.stats import spearmanr
-from matplotlib_venn import venn2
-import pandas as pd
-import seaborn as sns
-import json
-import sys
+import argparse
+import os, sys
 import glob, gzip
 from collections import Counter, defaultdict
 
@@ -44,27 +39,27 @@ if __name__ == '__main__':
         os.remove(args.out_log_path)
         
     eid_lookup_dict = {}
-    with gzip.open(args.in_same_org_eids_path, newline='', encoding='utf-8') as gz_f:
-        reader = csv.DictReader(gz_f)
+    with gzip.open(args.in_same_org_eids_path, 'rt', newline='', encoding='utf-8') as gz_f:
+        reader = csv.DictReader(gz_f, delimiter = '\t')
         for row in reader:
-            pmid = reader['pmid']
-            rel_id = reader['rel_id']
-            tax1_id = reader['tax1_id']
-            str1_id = reader['str1_id']
-            e1_start = reader['e1_start']
-            e1_end = reader['e1_end']
-            tax2_id = reader['tax2_id']
-            str2_id = reader['str2_id']
-            e2_start = reader['e2_start']
-            e2_end = reader['e2_end']
-            rel_score = reader['rel_score']
+            pmid = row['pmid']
+            rel_id = row['rel_id']
+            tax1_id = row['tax1_id']
+            str1_id = row['str1_id']
+            e1_start = row['e1_start']
+            e1_end = row['e1_end']
+            tax2_id = row['tax2_id']
+            str2_id = row['str2_id']
+            e2_start = row['e2_start']
+            e2_end = row['e2_end']
+            rel_score = row['rel_score']
             eid_lookup_dict[pmid+rel_id] = [tax1_id, str1_id, e1_start, e1_end, tax2_id, str2_id, e2_start, e2_end, rel_score]
     
     trigger_count = {}
     trigger_scores = defaultdict(list)
     rel_type_to_pmid_relid = defaultdict(list)
     for filepath in glob.glob(args.in_trigger_detection_tsvgz_path):
-        with gzip.open(filepath, newline='', encoding='utf-8') as gz_f:
+        with gzip.open(filepath, 'rt', newline='', encoding='utf-8') as gz_f:
             
             reader = csv.DictReader(gz_f)
             
@@ -76,65 +71,70 @@ if __name__ == '__main__':
                 rel_type = row['relation_type']
                 trig_st = int(row['trigger_bgn_offset'])
                 trig_end = int(row['trigger_end_offset'])
-                trigger_score = row['confidence_score']
+                trigger_score = float(row['confidence_score'])
                 trigger_text = row['trigger_text']
                 
-                # handle new line and change offsets
-                if trigger_text.count('\n') == 1:
-                    rm_pos = trigger_text.index('\n')
-                    if rm_pos == 0:
-                        trig_st += 1
-                    elif rm_pos == len(trigger_text) -1:
-                        trig_end -= 1
-                    else:
+                ## may have been excluded if e1_id and e2_id is not in the same paragraph
+                ## only continue if the pair exists
+                if pmid+rel_id in eid_lookup_dict: 
+                    
+                    # handle new line and change offsets
+                    if trigger_text.count('\n') == 1:
+                        rm_pos = trigger_text.index('\n')
+                        if rm_pos == 0:
+                            trig_st += 1
+                        elif rm_pos == len(trigger_text) -1:
+                            trig_end -= 1
+                        else:
+                            ## log
+                            with open(args.out_log_path, 'a') as wf:
+                                print(pmid, rel_id, 'newline in middle of trigger', file = wf)
+                            continue
+                    elif trigger_text.count('\n') > 1:
+                        ## multiple new lines
                         ## log
                         with open(args.out_log_path, 'a') as wf:
-                            print(pmid, rel_id, 'newline in middle of trigger', file = wf)
+                            print(pmid, rel_id, 'trigger contains multiple newlines', file = wf)
                         continue
-                else: ## multiple new lines
-                    ## log
-                    with open(args.out_log_path, 'a') as wf:
-                        print(pmid, rel_id, 'trigger contains multiple newlines', file = wf)
-                    continue
-                
-                if trig_st == trig_end:
-                    ## log
-                    with open(args.out_log_path, 'a') as wf:
-                        print(pmid, rel_id, 'trigger contains only newline', file = wf)
-                    continue
-                
-                rel_type_to_pmid_relid[rel_type].append(pmid+rel_id)
-                trigger_scores[pmid+rel_id].append(round(trigger_score,2)) ## reduce score precision to save stats write-out space
-                
-                if pmid+rel_id in trigger_count:
-                    trigger_count[pmid+rel_id] += 1
-                else:
-                    trigger_count[pmid+rel_id] = 1
-                
-                with gzip.open(args.out_evidence_viewer_path, 'wt') as wf:
-                    tax1_id, str1_id, e1_start, e1_end, tax2_id, str2_id, e2_start, e2_end, rel_score = eid_lookup_dict[pmid+rel_id]
                     
-                    print(pmid, e1_start, e1_end, tax1_id, str1_id, e2_start, e2_end, tax2_id, str2_id, rel_type, relationship_score, triggerstart, triggerend, triggermatch, f'Tr_{trigger_count[pmid+rel_id]}', triggerscore, sep = '\t', file = wf)
+                    if trig_st == trig_end:
+                        ## log
+                        with open(args.out_log_path, 'a') as wf:
+                            print(pmid, rel_id, 'trigger contains only newline', file = wf)
+                        continue
+                    
+                    rel_type_to_pmid_relid[rel_type].append(pmid+rel_id)
+                    trigger_scores[pmid+rel_id].append(trigger_score) ## reduce score precision to save stats write-out space
+                    
+                    if pmid+rel_id in trigger_count:
+                        trigger_count[pmid+rel_id] += 1
+                    else:
+                        trigger_count[pmid+rel_id] = 1
+                
+                    with gzip.open(args.out_evidence_viewer_path, 'at') as wf:
+                        tax1_id, str1_id, e1_start, e1_end, tax2_id, str2_id, e2_start, e2_end, rel_score = eid_lookup_dict[pmid+rel_id]
+                        
+                        print(pmid, e1_start, e1_end, tax1_id, str1_id, e2_start, e2_end, tax2_id, str2_id, rel_type, rel_score, trig_st, trig_end, trigger_text, f'Tr_{trigger_count[pmid+rel_id]}', trigger_score, sep = '\t', file = wf)
                     
     ## stats
     
     with open(args.out_stats_path, 'w') as wf:
         
-        for rel_type, rel_info in rel_type_to_pmid_relid:
+        for rel_type, rel_info in rel_type_to_pmid_relid.items():
             print(rel_type, file = wf)
-            print('Trigger scores when multiple triggers are found', file = wf)
+            print('Trigger scores when multiple triggers are found:', file = wf)
             tw_counts = []
             for pmid_rel_id in rel_info:
                 if pmid_rel_id in trigger_count:
                     tw_counts.append(trigger_count[pmid_rel_id])
                     if trigger_count[pmid_rel_id] > 1:
-                        print(','.join(trigger_scores[pmid_rel_id]), file  =wf)
+                        print(','.join([f'{i:.2f}' for i in sorted(trigger_scores[pmid_rel_id])]), file=wf)
                         
                 else:
                     tw_counts.append(0)
             
-            print('Trigger counts per relationship', file = wf)
-            for tw_num, counts in Counter(tw_counts).items()
+            print('Trigger counts per relationship:', file = wf)
+            for tw_num, counts in Counter(tw_counts).items():
                 print(tw_num, counts, sep = ':', file = wf)
 
             print('-----------------------------', file = wf)

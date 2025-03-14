@@ -27,10 +27,9 @@ import numpy as np
 
 def read_annotation_and_relation(document_id, input_tar_gz_handle):
     doc_dict={}
-    document_id = str(document_id)
-    rooted_document_id = "./" + document_id
+    
+    rooted_document_id = f"./{document_id}"
 
-    document_id = int(document_id)
     doc_dict = {}
     rel_dict = {}
     
@@ -44,7 +43,7 @@ def read_annotation_and_relation(document_id, input_tar_gz_handle):
     for line in lines:
         line = str(line.decode())
         if line[0] == "#":
-            _ , e_id , e_notes = line.strip().split(" ")
+            _ , _ , e_notes = line.strip().split(" ")
             e_id, pmid, par_num, sent_num, start, end, string_id = e_notes.split("|")
             e_id, pmid, par_num, sent_num, start, end, string_id = str(e_id), int(pmid), int(par_num), int(sent_num), int(start), int(end), str(string_id)
             if pmid == document_id:
@@ -129,7 +128,9 @@ if __name__=="__main__":
             
             if (e1_id, e2_id) not in pmid_rel_dict[pmid]:
                 continue
-            print(pmid, e1_id , e2_id)
+            # print(pmid, e1_id , e2_id)
+            
+            doc_dict = pmid_doc_dict[pmid]
             for i in doc_dict[e1_id]['string_id']:
                 for j in doc_dict[e2_id]['string_id']:
                     
@@ -141,7 +142,7 @@ if __name__=="__main__":
                         #print line if the protein is not the same
                         if (str(i) != str(j)):
                             #print line if things are in the same paragraph only
-                            if (pmid_doc_dict[pmid][e1_id]['par_num'] == pmid_doc_dict[pmid][e2_id]['par_num']):
+                            if (doc_dict[e1_id]['par_num'] == doc_dict[e2_id]['par_num']):
                                
                                 # write this line
                                 # 391	T8	T11	9606	ENSP00000303830	2	7	986	1001	9606	ENSP00000380432	2	7	1099	1105	Complex_formation	0.9997691512107849
@@ -151,7 +152,7 @@ if __name__=="__main__":
                                     print(rel_id,rel_type)
                                     label_idx = labels.index(rel_type)
                                     relationship_score = float(probabilities_[label_idx])
-                                    print(label_idx, relationship_score)
+                                    # print(label_idx, relationship_score)
                                     with gzip.open(args.out_filtered_relation_with_eid, 'at') as wf:
                                         if rel_type[-1] == '<':
                                             e1_p = e2_id
@@ -179,7 +180,3 @@ if __name__=="__main__":
                                             rel_id, rel_type_print, relationship_score, 
                                             sep='\t', file=wf)
                                         
-# TOFIX Traceback (most recent call last):
-#   File "/scratch/project_2001426/qingyao/process-NER-Trigger-output/filter_relationship.py", line 133, in <module>
-#     for i in doc_dict[e1_id]['string_id']:
-# KeyError: 'T47'
