@@ -149,7 +149,7 @@ if __name__=="__main__":
                                 
                                 ## can be multiple relations per pair
                                 for (rel_id, rel_type) in pmid_rel_dict[pmid][(e1_id, e2_id)]: 
-                                    print(rel_id,rel_type)
+                                    # print(rel_id,rel_type)
                                     label_idx = labels.index(rel_type)
                                     relationship_score = float(probabilities_[label_idx])
                                     # print(label_idx, relationship_score)
