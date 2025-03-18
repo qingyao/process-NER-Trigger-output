@@ -38,6 +38,7 @@ trap on_exit EXIT
 
 source /scratch/project_2001426/qingyao/new-trigger-out-test/.pyvenv/bin/activate
 
+rm ${SAME_ORG_EID_DIR}/${FOLDER_ID}/same-org-outputs-with-eids.tsv.gz
 for f in ${TRIGGER_INPUT_DIR}/${FOLDER_ID}/*.tar.gz; do
     subfolder_id=$(basename $f .tar.gz)
     python3 filter_relationship.py \

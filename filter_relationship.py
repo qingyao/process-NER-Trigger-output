@@ -107,10 +107,12 @@ if __name__=="__main__":
         
         # sys.exit()
     
-    ## over-write if already exists
+    ## can't over-write because 20 subfolders write into the same file.
+    ## but make sure the folder is empty before submit
     os.makedirs(os.path.dirname(args.out_filtered_relation_with_eid), exist_ok=True)
-    with gzip.open(args.out_filtered_relation_with_eid, 'wt') as wf:
-        print('pmid', 'e1_id', 'e2_id', 'tax1_id', 'str1_id', 'par1_num', 'sent1_num', 'e1_start', 'e1_end', 'tax2_id', 'str2_id', 'par2_num', 'sent2_num', 'e2_start', 'e2_end', 'rel_id', 'rel_type', 'rel_score', sep = '\t', file = wf)
+    if not os.path.isfile(args.out_filtered_relation_with_eid):
+        with gzip.open(args.out_filtered_relation_with_eid, 'wt') as wf:
+            print('pmid', 'e1_id', 'e2_id', 'tax1_id', 'str1_id', 'par1_num', 'sent1_num', 'e1_start', 'e1_end', 'tax2_id', 'str2_id', 'par2_num', 'sent2_num', 'e2_start', 'e2_end', 'rel_id', 'rel_type', 'rel_score', sep = '\t', file = wf)
         
     with gzip.open(args.in_RE_outtsvgz_path , "rt") as f:
         _ , _ , _ , *labels  = f.readline().strip().split("\t")
